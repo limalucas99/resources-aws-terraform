@@ -1,0 +1,32 @@
+# Arquivos locais e de cache do Terraform
+*.tfstate
+*.tfstate.backup
+
+# Diretório onde o Terraform armazena dados temporários
+.terraform/
+
+# Override de configurações, não deve ser versionado
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Arquivos de crash e logs gerados em erros
+crash.log
+crash.*.log
+
+# Planos de execução salvos (não são portáveis entre ambientes)
+terraform.tfplan
+
+# Arquivos de lock de provedor
+.terraform.lock.hcl
+
+# Evita versionar arquivos de editor/IDE
+# (VS Code, IntelliJ, Vim, etc)
+.vscode/
+.idea/
+*.swp
+
+# Evita arquivos de sistema
+.DS_Store
+Thumbs.db
