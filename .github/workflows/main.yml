@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-  pull_request:
 
 jobs:
   terraform:
@@ -29,21 +28,23 @@ jobs:
         uses: hashicorp/setup-terraform@v3
 
       - name: Terraform Init
-        run: terraform init -backend-config="region=${{ secrets.AWS_REGION }}" -input=false
+        run: terraform init
 
       - name: Terraform Validate
         run: terraform validate
 
       - name: Terraform Plan
-        run: terraform plan -out=tfplan
+        run: terraform plan
 
-      - name: Terraform Apply (only on main branch)
+      - name: Terraform Apply
+        id: apply
         run: terraform apply -auto-approve tfplan
         continue-on-error: true
 
-      - name: If fail
-        if: ${{ failure()}}
+      - name: Rollback on Failure
+        if: steps.apply.outcome == 'failure'
         run: |
+            echo "❌ Terraform Apply falhou. Executando terraform destroy como rollback..."
             terraform destroy -auto-approve
             exit 1
 
