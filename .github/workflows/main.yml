@@ -39,6 +39,13 @@ jobs:
 
       - name: Terraform Apply (only on main branch)
         run: terraform apply -auto-approve tfplan
+        continue-on-error: true
+
+      - name: If fail
+        if: ${{ failure()}}
+        run: |
+            terraform destroy
+            exit 1
 
       - name: Show Terraform Outputs
         run: terraform output
