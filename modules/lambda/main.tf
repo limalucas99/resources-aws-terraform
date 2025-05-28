@@ -6,7 +6,6 @@ data "archive_file" "empty_zip" {
   output_path = "${path.module}/empty.zip"
 }
 
-
 resource "aws_lambda_function" "this" {
   function_name = var.function_name
   runtime       = var.runtime
