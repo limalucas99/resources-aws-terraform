@@ -38,7 +38,7 @@ jobs:
 
       - name: Terraform Apply
         id: apply
-        run: terraform apply -auto-approve tfplan
+        run: terraform apply -auto-approve
         continue-on-error: true
 
       - name: Rollback on Failure
