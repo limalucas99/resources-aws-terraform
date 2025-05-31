@@ -163,6 +163,14 @@ jobs:
             fi
           done
 
+      # 10) Rollback on Failure
+      - name: Rollback on Failure
+        if: steps.apply.outcome == 'failure'
+        run: |
+          echo "❌ Terraform Apply falhou. Executando terraform destroy como rollback..."
+          terraform destroy -auto-approve
+          exit 1
+
       ############################
       # 13) Fazer upload do plan.tfplan gerado para o bucket S3
       #
