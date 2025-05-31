@@ -11,63 +11,92 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: ./
+        working-directory: ./ 
 
     steps:
       # 1) Faz checkout do repositório
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2) Configura credenciais AWS (para S3, Secrets Manager, backend Terraform etc)
+      # 2) Configura credenciais AWS (para S3, Secrets Manager etc)
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region:            ${{ secrets.AWS_REGION }}
-          aws-session-token:     ${{ secrets.SESSION_TOKEN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+          aws-session-token: ${{ secrets.SESSION_TOKEN }}  # se você usar STS
 
-      # 3) Instala jq (para parse de JSON)
+      # 3) Instala jq para parse de JSON
       - name: Install jq
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y jq
+        run: sudo apt-get update && sudo apt-get install -y jq
 
-      # 4) Setup Terraform CLI (com backend remoto configurado em main.tf ou providers.tf)
+      # 4) Setup Terraform CLI
       - name: Setup Terraform CLI
         uses: hashicorp/setup-terraform@v3
 
-      # 5) Terraform Init (garante que o backend remoto seja inicializado)
+      # 5) Terraform Init
       - name: Terraform Init
         run: terraform init -input=false
 
-      # 6) Terraform Validate (confere sintaxe e estrutura HCL)
+      # 6) Terraform Validate
       - name: Terraform Validate
         run: terraform validate
 
       ############################
-      # 7) Terraform Plan (gera um novo arquivo plan.tfplan)
+      # 7) Baixar arquivo plan.tfplan do S3 (se já existir)
       #
-      #    - SEM nenhum download de plano antigo.
-      #    - Isso faz com que o Terraform consulte o estado remoto (via backend) 
-      #      e gere um plano atualizado, refletindo todos os recursos existentes.
+      #    - Aqui assumimos que, no seu `terraform.tfvars`, 
+      #      você já tem definido: bucket_name = "meu-bucket-aws-resources"
+      #
+      #    - No primeiro run, como o bucket ainda não existe, esse comando “falhará” com 404
+      #      e nós capturamos isso para prosseguir sem erro. Nos runs subsequentes, 
+      #      se existir plan.tfplan no bucket, ele será baixado para ./plan.tfplan.
+      #
+      #    Padrão: usamos aws cli + exit code condicional para “ignorar” erro 404.
+      ############################
+      - name: Download existing Terraform Plan from S3
+        id: download_plan
+        run: |
+          # Extrai bucket_name diretamente do terraform.tfvars:
+          BUCKET_NAME=$(grep '^bucket_name' terraform.tfvars | head -n1 | awk -F'=' '{print $2}' | tr -d ' "')
+          echo "🔍  Bucket configurado para armazenar o plano: $BUCKET_NAME"
+
+          # Se não existir bucket ou objeto, queremos continuar sem falhar.
+          set +e
+          aws s3 cp s3://"$BUCKET_NAME"/plan.tfplan ./plan.tfplan
+          RET=$?
+          set -e
+
+          if [ $RET -eq 0 ]; then
+            echo "✔️  Encontrado plan.tfplan em s3://$BUCKET_NAME/plan.tfplan. Vai reaplicar o mesmo plano."
+          else
+            echo "ℹ️  Não existe plan.tfplan em s3://$BUCKET_NAME/plan.tfplan. Será gerado um novo."
+          fi
+
+      ############################
+      # 8) Terraform Plan gerando um arquivo binário (plan.tfplan)
+      #
+      #    - Se já baixamos um plan.tfplan do S3, o Terraform 
+      #      saberá que o estado remoto corresponde ao plano antigo. 
+      #    - Mesmo assim, rodamos `terraform plan -out=plan.tfplan` 
+      #      para gerar o plano novo considerando eventuais mudanças de código.
       ############################
       - name: Terraform Plan (output para arquivo)
-        id: terraform_plan
         run: terraform plan -out=plan.tfplan -input=false
 
       ############################
-      # 8) Terraform Apply usando o plan.tfplan gerado
+      # 9) Terraform Apply usando plan.tfplan
       #
-      #    - Garante que aplicamos exatamente o que foi calculado no passo anterior.
-      #    - Se falhar, fazemos rollback (destroy).
+      #    - Se falhar, executamos um rollback (destroy).
+      #    - O módulo S3 será criado neste momento, se ainda não existir.
       ############################
       - name: Terraform Apply from Plan
         id: apply
         run: terraform apply -auto-approve plan.tfplan
         continue-on-error: true
 
-      # 9) Rollback on Failure (somente se apply falhar)
+      # 10) Rollback on Failure
       - name: Rollback on Failure
         if: steps.apply.outcome == 'failure'
         run: |
@@ -76,39 +105,43 @@ jobs:
           exit 1
 
       ############################
-      # 10) Extrair outputs do Terraform em JSON
+      # 11) Extrair outputs do Terraform em JSON
       #
-      #     - Gera tf-outputs.json com TODOS os outputs que você declarou 
-      #       em seus módulos/main.tf.
+      #     - Gera um arquivo tf-outputs.json com todos os outputs declarados. 
       ############################
       - name: Terraform Output to JSON
         run: terraform output -json > tf-outputs.json
 
       ############################
-      # 11) Publicar cada saída do Terraform no AWS Secrets Manager
+      # 12) Carregar cada saída do Terraform no AWS Secrets Manager
       #
-      #     - Itera sobre as chaves do tf-outputs.json e faz create || put no Secrets Manager.
-      #     - O nome de cada secret será: "terraform/<nome_do_output>"
+      #     - Para cada chave no JSON, fazemos:
+      #         aws secretsmanager create-secret || aws secretsmanager put-secret-value
+      #     - Nome do secret: <prefix>/<nome_da_chave>
+      #     - Prefixo poderia ser uma variável ou simplesmente “terraform”.
+      #     - Usamos `jq` para iterar sobre as chaves do JSON.
       ############################
       - name: Publish Terraform Outputs to AWS Secrets Manager
         id: publish_secrets
         run: |
-          PREFIX="terraform"
+          PREFIX="terraform" 
+          # Podemos parametrizar PREFIX se quiser mapear vários ambientes.
+          
+          # Lê o JSON de outputs
           for key in $(jq -r 'keys[]' tf-outputs.json); do
-            # Pega o valor bruto de cada output
-            raw_value=$(jq -r ".\"$key\".value" tf-outputs.json)
-
-            # Verifica se o valor é JSON válido (objeto/array); senão, trata como string simples
-            if echo "$raw_value" | jq -e . >/dev/null 2>&1; then
-              secret_string="$raw_value"
+            value=$(jq -r ".\"$key\".value" tf-outputs.json)
+            
+            # Se o valor for um objeto ou array, convertê-lo em string JSON
+            if echo "$value" | jq -e . >/dev/null 2>&1; then
+              secret_string="$value"
             else
-              # Valores simples (string, número) são usados "crus"
-              secret_string=$(printf '%s' "$raw_value")
+              # se for string “simples”, não precisa de aspas extras
+              secret_string=$(printf '%s' "$value")
             fi
-
+            
             SECRET_NAME="${PREFIX}/${key}"
-
-            # Tenta criar o secret. Se já existir, atualiza.
+            
+            # Tenta criar o secret (caso não exista)
             set +e
             aws secretsmanager create-secret \
               --name "$SECRET_NAME" \
@@ -116,10 +149,11 @@ jobs:
               --region="${{ secrets.AWS_REGION }}"
             RET_CREATE=$?
             set -e
-
+            
             if [ $RET_CREATE -eq 0 ]; then
               echo "✔️  Secret '$SECRET_NAME' criado com sucesso."
             else
+              # Se falhar porque já existe, fazemos update
               echo "ℹ️  Secret '$SECRET_NAME' já existe. Atualizando valor..."
               aws secretsmanager put-secret-value \
                 --secret-id "$SECRET_NAME" \
@@ -130,17 +164,17 @@ jobs:
           done
 
       ############################
-      # 12) Fazer upload do arquivo plan.tfplan para o bucket S3 criado pelo Terraform
+      # 13) Fazer upload do plan.tfplan gerado para o bucket S3
       #
-      #     - Isso ocorre somente SE o apply tiver sido bem-sucedido.
-      #     - O bucket S3 deve ter sido criado dentro do Terraform (módulo s3 em main.tf).
-      #     - O nome do bucket é obtido do output "bucket_name" do Terraform.
+      #     - Agora que o bucket S3 (módulo Terraform) já existe
+      #       (criado no passo de apply), podemos armazenar Add commentMore actions
+      #       plan.tfplan em s3://<bucket_name>/plan.tfplan
       ############################
       - name: Upload Terraform Plan to S3
         if: steps.apply.outcome == 'success'
         run: |
-          # Pega o "bucket_name" do JSON de outputs
+          # Extrai bucket_name do tf-outputs.json
           BUCKET_NAME=$(jq -r '.bucket_name.value' tf-outputs.json)
-          echo "🔒  Fazendo upload do plan.tfplan em s3://$BUCKET_NAME/plan.tfplan"
+          echo "🔒  Fazendo upload do plan.tfplan para s3://$BUCKET_NAME/plan.tfplan"
           aws s3 cp plan.tfplan s3://"$BUCKET_NAME"/plan.tfplan \
             --region="${{ secrets.AWS_REGION }}"
