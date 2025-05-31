@@ -23,3 +23,10 @@ module "apigateway" {
   aws_region      = var.aws_region
   stage_name        = "dev" # mesmo que você não use, é obrigatório
 }
+
+module "s3" {
+  source      = "./modules/s3"
+  bucket_name = var.s3_bucket_name
+  tags        = var.default_tags
+}
+

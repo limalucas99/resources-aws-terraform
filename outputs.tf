@@ -26,3 +26,8 @@ output "api_invoke_url" {
 output "api_execution_arn" {
   value = module.apigateway.execution_arn
 }
+
+output "bucket_name" {
+  value       = module.s3.bucket_name
+  description = "Nome do bucket S3"
+}
