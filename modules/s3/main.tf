@@ -16,3 +16,9 @@ resource "aws_s3_bucket_public_access_block" "this" {
   ignore_public_acls      = true
   restrict_public_buckets = true
 }
+
+resource "aws_ssm_parameter" "s3_bucket_name" {
+  name  = "/myapp/shared/s3_bucket_name"
+  type  = "String"
+  value = aws_s3_bucket.this.bucket
+}
