@@ -10,3 +10,7 @@ output "invoke_url" {
 output "execution_arn" {
   value = aws_api_gateway_rest_api.this.execution_arn
 }
+
+output "stage_name" {
+  value = aws_api_gateway_stage.stage.stage_name
+}
