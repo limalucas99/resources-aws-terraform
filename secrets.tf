@@ -1,3 +1,8 @@
+resource "aws_secretsmanager_secret" "app_config" {
+  name        = "my-appsettings-secret"
+  description = "Configuração para aplicação C# via AWS Secrets Manager"
+}
+
 resource "aws_secretsmanager_secret_version" "app_config_version" {
   secret_id = aws_secretsmanager_secret.app_config.id
 
