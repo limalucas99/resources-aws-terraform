@@ -9,7 +9,6 @@ resource "aws_cognito_user_pool_client" "client" {
 
   explicit_auth_flows = [
     "ADMIN_NO_SRP_AUTH",
-    "ALLOW_USER_PASSWORD_AUTH",
     "ALLOW_REFRESH_TOKEN_AUTH"
   ]
 }
