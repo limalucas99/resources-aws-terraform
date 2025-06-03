@@ -11,5 +11,7 @@ resource "aws_cognito_user_pool_client" "client" {
     "ADMIN_NO_SRP_AUTH",
     "ALLOW_REFRESH_TOKEN_AUTH"
   ]
+
+  prevent_user_existence_errors = "ENABLED"
 }
 
