@@ -14,3 +14,4 @@ resource "aws_cognito_user_pool_client" "client" {
 
   prevent_user_existence_errors = "ENABLED"
 }
+
