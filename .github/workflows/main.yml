@@ -163,7 +163,7 @@ jobs:
           done
 
       ############################
-      # 13) Fazer upload do plan.tfplan gerado para o bucket S3
+      # 13) Fazer upload do plan.tfplan gerado para o bucket S3!
       #
       #     - Agora que o bucket S3 (módulo Terraform) já existe
       #       (criado no passo de apply), podemos armazenar Add commentMore actions
