@@ -34,4 +34,6 @@ terraform.tfvars
 .DS_Store
 *.bak
 
+# Outros arquivos
+.zip
 
