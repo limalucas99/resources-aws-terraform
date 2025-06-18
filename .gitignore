@@ -28,12 +28,12 @@ terraform.tfvars
 .idea/
 *.swp
 *~
-.txt
+*.txt
 
 # MacOS e Linux
 .DS_Store
 *.bak
 
 # Outros arquivos
-.zip
+*.zip
 
